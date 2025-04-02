@@ -18,7 +18,7 @@ import { ItemType } from '@openai/realtime-api-beta/dist/lib/client.js';
 import { WavRecorder, WavStreamPlayer } from '../lib/wavtools/index.js';
 import { WavRenderer } from '../utils/wav_renderer';
 
-import { X, Edit, Zap } from 'react-feather';
+import { X, Edit, Zap, Search, RefreshCw } from 'react-feather';
 import { Button } from '../components/button/Button';
 import { Toggle } from '../components/toggle/Toggle';
 
@@ -28,6 +28,12 @@ import './ConsolePage.scss';
 const keywordInstructions = `
 EXTRACT KEYWORDS IN REAL-TIME. For EACH WORD the user speaks, immediately check if it's a keyword and return it. DO NOT wait for complete phrases - extract and return keywords AS SOON as you hear them. Return SINGLE words, not phrases. Return ONLY nouns, verbs, and important terms. DO NOT include articles, prepositions or conjunctions. DO NOT wait for the user to finish speaking.
 `;
+
+// Interface for search results
+interface SearchResult {
+  content: string;
+  loading: boolean;
+}
 
 export function ConsolePage() {
   /**
@@ -42,6 +48,79 @@ export function ConsolePage() {
   if (apiKey !== '') {
     localStorage.setItem('tmp::voice_api_key', apiKey);
   }
+
+  // State for search functionality
+  const [searchKeyword, setSearchKeyword] = useState<string>('');
+  const [searchResults, setSearchResults] = useState<SearchResult>({
+    content: '',
+    loading: false
+  });
+  const [searchHistory, setSearchHistory] = useState<string[]>([]);
+
+  // Function to perform search using OpenAI API
+  const performSearch = async (keyword: string) => {
+    if (!keyword || !apiKey) return;
+    
+    setSearchKeyword(keyword);
+    setSearchResults({ content: '', loading: true });
+    
+    try {
+        const response = await fetch('https://api.openai.com/v1/responses', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify({
+                model: 'gpt-4o-mini',
+                tools: [{
+                    type: 'file_search',
+                    vector_store_ids: ['vs_67ecdf6c4c388191babe14f6528ec5d6'],
+                    max_num_results: 5
+                }],
+                input: keyword,
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error(`API request failed with status ${response.status}`);
+        }
+
+        const data = await response.json();
+        
+        if (data.status !== "completed") {
+            throw new Error('Search process is not completed yet');
+        }
+        
+        const messageOutput = data.output.find((output: { type: string; }) => output.type === "message");
+        let extractedText = "No relevant content found.";
+        
+        if (messageOutput && messageOutput.content.length > 0) {
+            const textContent = messageOutput.content.find((content: { type: string; }) => content.type === "output_text");
+            if (textContent) {
+                extractedText = textContent.text;
+            }
+        }
+        
+        setSearchResults({
+            content: extractedText,
+            loading: false
+        });
+        
+        // Add to search history if not already present
+        if (!searchHistory.includes(keyword)) {
+            setSearchHistory(prev => [keyword, ...prev].slice(0, 5));
+        }
+        
+    } catch (error) {
+        console.error('Search error:', error);
+        setSearchResults({
+            content: `Error: Failed to search for "${keyword}"`,
+            loading: false
+        });
+    }
+};
+
 
   /**
    * Instantiate:
@@ -288,7 +367,7 @@ export function ConsolePage() {
             // Only add keywords that aren't already in the array
             setDetectedKeywords(prev => {
               const uniqueKeywords = potentialKeywords.filter(
-                (                keyword: string) => !prev.includes(keyword)
+                (keyword: string) => !prev.includes(keyword)
               );
               return [...prev, ...uniqueKeywords];
             });
@@ -340,7 +419,12 @@ export function ConsolePage() {
               ) : (
                 <div className="keywords-grid">
                   {detectedKeywords.map((keyword, index) => (
-                    <div key={index} className="keyword-badge">
+                    <div 
+                      key={index} 
+                      className="keyword-badge" 
+                      onClick={() => performSearch(keyword)}
+                      title="Click to search for this keyword"
+                    >
                       {keyword}
                     </div>
                   ))}
@@ -407,6 +491,63 @@ export function ConsolePage() {
                 isConnected ? disconnectConversation : connectConversation
               }
             />
+          </div>
+        </div>
+        
+        {/* New search panel on the right */}
+        <div className="search-panel">
+          <div className="search-header">
+            <div className="search-title">Keyword Search</div>
+            <div className="search-box">
+              <input 
+                type="text"
+                value={searchKeyword}
+                onChange={(e) => setSearchKeyword(e.target.value)}
+                placeholder="Enter keyword to search"
+              />
+              <Button
+                icon={Search}
+                buttonStyle="action"
+                disabled={!searchKeyword || searchResults.loading}
+                onClick={() => performSearch(searchKeyword)}
+              />
+            </div>
+            <div className="search-history">
+              <div className="history-title">Recent Searches:</div>
+              <div className="history-items">
+                {searchHistory.map((term, idx) => (
+                  <Button 
+                    key={idx}
+                    label={term}
+                    buttonStyle="flush"
+                    onClick={() => {
+                      setSearchKeyword(term);
+                      performSearch(term);
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+          
+          <div className="search-results">
+            <div className="results-header">
+              <div className="results-title">
+                {searchKeyword ? `Results for "${searchKeyword}"` : "No search performed"}
+                {searchResults.loading && (
+                  <RefreshCw className="loading-icon" />
+                )}
+              </div>
+            </div>
+            <div className="results-content">
+              {searchResults.content ? (
+                <div className="result-text">{searchResults.content}</div>
+              ) : (
+                <div className="no-results">
+                  {searchResults.loading ? "Searching..." : "No results yet. Click on a keyword or use the search box above."}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
