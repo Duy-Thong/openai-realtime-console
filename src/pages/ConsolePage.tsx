@@ -285,7 +285,13 @@ export function ConsolePage() {
           
           if (potentialKeywords.length > 0) {
             console.log('Detected keywords:', potentialKeywords);
-            setDetectedKeywords(prev => [...prev, ...potentialKeywords]);
+            // Only add keywords that aren't already in the array
+            setDetectedKeywords(prev => {
+              const uniqueKeywords = potentialKeywords.filter(
+                (                keyword: string) => !prev.includes(keyword)
+              );
+              return [...prev, ...uniqueKeywords];
+            });
           }
         }
       }
@@ -325,26 +331,17 @@ export function ConsolePage() {
       </div>
       <div className="content-main">
         <div className="content-logs">
-          <div className="content-block visualization">
-            <div className="visualization">
-              <div className="visualization-entry client">
-                <canvas ref={clientCanvasRef} />
-              </div>
-            </div>
-            <div className="content-block-title">voice input</div>
-          </div>
-          
-          <div className="content-block conversation">
-            <div className="content-block-title">detected keywords</div>
-            <div className="content-block-body" data-conversation-content>
+          {/* Visualization moved down to give priority to keywords and transcript */}
+          <div className="content-block keywords-display">
+            <div className="content-block-title">DETECTED KEYWORDS</div>
+            <div className="content-block-body keywords-container" data-conversation-content>
               {detectedKeywords.length === 0 ? (
-                <div className="no-keywords">No keywords detected yet</div>
+                <div className="no-keywords">Speak to detect keywords</div>
               ) : (
-                <div className="keywords-list">
+                <div className="keywords-grid">
                   {detectedKeywords.map((keyword, index) => (
-                    <div key={index} className="keyword-item">
-                      <span className="keyword-text">{keyword}</span>
-                      <span className="keyword-time">{new Date().toLocaleTimeString()}</span>
+                    <div key={index} className="keyword-badge">
+                      {keyword}
                     </div>
                   ))}
                 </div>
@@ -352,17 +349,17 @@ export function ConsolePage() {
             </div>
           </div>
 
-          {/* Add a transcript display to help with debugging */}
-          <div className="content-block conversation">
-            <div className="content-block-title">transcripts</div>
-            <div className="content-block-body" data-conversation-content>
+          {/* Transcript section with improved visibility */}
+          <div className="content-block conversation transcript-section">
+            <div className="content-block-title">LIVE TRANSCRIPT</div>
+            <div className="content-block-body transcript-container" data-conversation-content>
               {items.length === 0 ? (
-                <div className="no-transcripts">No transcripts yet</div>
+                <div className="no-transcripts">No speech detected yet</div>
               ) : (
                 <div className="transcripts-list">
                   {items.map((item, index) => (
                     <div key={index} className={`transcript-item ${item.role}`}>
-                      <div className="transcript-role">{item.role}</div>
+                      <div className="transcript-role">{item.role === 'user' ? 'You' : 'AI'}</div>
                       <div className="transcript-text">
                         {item.formatted.transcript || item.formatted.text || "(no text)"}
                       </div>
@@ -371,6 +368,16 @@ export function ConsolePage() {
                 </div>
               )}
             </div>
+          </div>
+          
+          {/* Visualization moved here */}
+          <div className="content-block visualization">
+            <div className="visualization">
+              <div className="visualization-entry client">
+                <canvas ref={clientCanvasRef} />
+              </div>
+            </div>
+            <div className="content-block-title">VOICE INPUT</div>
           </div>
           
           <div className="content-actions">
