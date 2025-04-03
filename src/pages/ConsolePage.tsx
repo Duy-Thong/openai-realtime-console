@@ -11,7 +11,7 @@
 const LOCAL_RELAY_SERVER_URL: string =
   process.env.REACT_APP_LOCAL_RELAY_SERVER_URL || '';
 
-import { useEffect, useRef, useCallback, useState } from 'react';
+import { useEffect, useRef, useCallback, useState, DragEvent } from 'react';
 
 import { RealtimeClient } from '@openai/realtime-api-beta';
 import { ItemType } from '@openai/realtime-api-beta/dist/lib/client.js';
@@ -26,9 +26,7 @@ import './ConsolePage.scss';
 
 // Keyword detection instructions
 const keywordInstructions = `
-Trích xuất từ khóa TRONG THỜI GIAN THỰC. Đối với MỖI TỪ người dùng nói, hãy kiểm tra ngay lập tức xem đó có phải là từ khóa hay không và trả về nó. KHÔNG đợi hoàn thành cụm từ - trích xuất và trả về từ khóa NGAY KHI bạn nghe thấy chúng. Trả về các từ ĐƠN LẺ, không phải cụm từ. CHỈ trả về danh từ, động từ và các thuật ngữ quan trọng. KHÔNG bao gồm mạo từ, giới từ hoặc liên từ. KHÔNG đợi người dùng nói xong.
-`;
-
+Extract keywords in real-time only in English. As soon as a word is spoken, immediately determine if it is a keyword and return it. Do NOT wait for full sentences. Extract and return only nouns, verbs, and critical terms. Exclude articles, prepositions, conjunctions, pronouns, and auxiliary verbs. Return single words, not phrases. Ignore non-English words. Focus on meaningful words relevant to the context. Maintain high accuracy in identifying important terms.`;
 // Interface for search results
 interface SearchResult {
   content: string;
@@ -66,7 +64,44 @@ export function ConsolePage() {
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
   // Cache for search results
   const [searchCache, setSearchCache] = useState<CachedSearch[]>([]);
+  // Add state for drag and drop functionality
+  const [isDragging, setIsDragging] = useState<boolean>(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
+  // Drag event handlers
+  const handleDragStart = (e: DragEvent<HTMLDivElement>, keyword: string) => {
+    e.dataTransfer.setData('text/plain', keyword);
+    e.dataTransfer.effectAllowed = 'copy';
+    setIsDragging(true);
+  };
+
+  const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  };
+
+  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const keyword = e.dataTransfer.getData('text/plain');
+    
+    // If there's already text in the search box, add a space before the new keyword
+    if (searchKeyword && !searchKeyword.endsWith(' ')) {
+      setSearchKeyword(prev => `${prev} ${keyword}`);
+    } else {
+      setSearchKeyword(prev => `${prev}${keyword}`);
+    }
+    
+    setIsDragging(false);
+    
+    // Focus the search input after dropping
+    if (searchInputRef.current) {
+      searchInputRef.current.focus();
+    }
+  };
+
+  const handleDragEnd = () => {
+    setIsDragging(false);
+  };
   // Function to perform search using OpenAI API
   const performSearch = async (keyword: string) => {
     if (!keyword || !apiKey) return;
@@ -101,10 +136,10 @@ export function ConsolePage() {
                 model: 'gpt-4o',
                 tools: [{
                     type: 'file_search',
-                    vector_store_ids: ['vs_67ecdf6c4c388191babe14f6528ec5d6'],
+                    vector_store_ids: ['vs_67ee03150ce48191bca7e703b889990a'],
                     max_num_results: 20
                 }],
-                input: "Tìm kiếm trong cơ sở tri thức đã được cung cấp thông tin về " + keyword,
+                input: keyword,
             })
         });
 
@@ -485,9 +520,12 @@ export function ConsolePage() {
                   {detectedKeywords.map((keyword, index) => (
                     <div 
                       key={index} 
-                      className="keyword-badge" 
+                      className={`keyword-badge ${isDragging ? 'draggable' : ''}`}
                       onClick={() => performSearch(keyword)}
-                      title="Click to search for this keyword"
+                      title="Click to search or drag to combine with other keywords"
+                      draggable={true}
+                      onDragStart={(e) => handleDragStart(e, keyword)}
+                      onDragEnd={handleDragEnd}
                     >
                       {keyword}
                     </div>
@@ -562,12 +600,17 @@ export function ConsolePage() {
         <div className="search-panel">
           <div className="search-header">
             
-            <div className="search-box">
+            <div 
+              className={`search-box ${isDragging ? 'drop-target' : ''}`}
+              onDragOver={handleDragOver}
+              onDrop={handleDrop}
+            >
               <input 
+                ref={searchInputRef}
                 type="text"
                 value={searchKeyword}
                 onChange={(e) => setSearchKeyword(e.target.value)}
-                placeholder="Enter keyword to search"
+                placeholder="Enter keyword or drag keywords here"
               />
               <Button
                 icon={Search}

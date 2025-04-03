@@ -188,6 +188,13 @@
         .search-box {
           display: flex;
           margin-bottom: 15px;
+          position: relative;
+          transition: all 0.3s ease;
+          &.drop-target {
+            border: 2px dashed #0099ff;
+            background-color: rgba(0, 153, 255, 0.1);
+            box-shadow: 0 0 10px rgba(0, 153, 255, 0.3);
+          }
           input {
             flex: 1;
             padding: 8px 12px;
@@ -199,7 +206,12 @@
             margin-right: 8px;
             &::placeholder {
               color: rgba(255, 255, 255, 0.5);
+              transition: all 0.3s ease;
             }
+          }
+          &.drop-target input::placeholder {
+            color: #0099ff;
+            font-weight: bold;
           }
         }
         .search-history {
@@ -430,8 +442,16 @@
     font-size: 14px;
     cursor: pointer;
     transition: background-color 0.2s;
+    &.draggable {
+      cursor: grab;
+    }
     &:hover {
       background-color: rgba(9, 153, 255, 0.5);
+      transform: translateY(-2px);
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+    }
+    &:active {
+      cursor: grabbing;
     }
   }
 }
@@ -501,4 +521,15 @@
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+// Animation for dragging state
+@keyframes pulseDropTarget {
+  0% { box-shadow: 0 0 0 rgba(0, 153, 255, 0.4); }
+  50% { box-shadow: 0 0 10px rgba(0, 153, 255, 0.7); }
+  100% { box-shadow: 0 0 0 rgba(0, 153, 255, 0.4); }
+}
+
+.drop-target {
+  animation: pulseDropTarget 1.5s infinite;
 }
