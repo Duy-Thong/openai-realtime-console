@@ -26,13 +26,21 @@ import './ConsolePage.scss';
 
 // Keyword detection instructions
 const keywordInstructions = `
-EXTRACT KEYWORDS IN REAL-TIME. For EACH WORD the user speaks, immediately check if it's a keyword and return it. DO NOT wait for complete phrases - extract and return keywords AS SOON as you hear them. Return SINGLE words, not phrases. Return ONLY nouns, verbs, and important terms. DO NOT include articles, prepositions or conjunctions. DO NOT wait for the user to finish speaking.
+Trích xuất từ khóa TRONG THỜI GIAN THỰC. Đối với MỖI TỪ người dùng nói, hãy kiểm tra ngay lập tức xem đó có phải là từ khóa hay không và trả về nó. KHÔNG đợi hoàn thành cụm từ - trích xuất và trả về từ khóa NGAY KHI bạn nghe thấy chúng. Trả về các từ ĐƠN LẺ, không phải cụm từ. CHỈ trả về danh từ, động từ và các thuật ngữ quan trọng. KHÔNG bao gồm mạo từ, giới từ hoặc liên từ. KHÔNG đợi người dùng nói xong.
 `;
 
 // Interface for search results
 interface SearchResult {
   content: string;
   loading: boolean;
+  tokens?: number;  // Add token count field
+}
+
+// Interface for cached search results
+interface CachedSearch {
+  keyword: string;
+  result: SearchResult;
+  timestamp: number;
 }
 
 export function ConsolePage() {
@@ -56,12 +64,30 @@ export function ConsolePage() {
     loading: false
   });
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
+  // Cache for search results
+  const [searchCache, setSearchCache] = useState<CachedSearch[]>([]);
 
   // Function to perform search using OpenAI API
   const performSearch = async (keyword: string) => {
     if (!keyword || !apiKey) return;
     
     setSearchKeyword(keyword);
+    
+    // Check if we have a cached result for this keyword
+    const cachedResult = searchCache.find(item => item.keyword.toLowerCase() === keyword.toLowerCase());
+    
+    if (cachedResult) {
+      console.log('Using cached search result for:', keyword);
+      setSearchResults(cachedResult.result);
+      
+      // Update search history if not already present
+      if (!searchHistory.includes(keyword)) {
+        setSearchHistory(prev => [keyword, ...prev].slice(0, 5));
+      }
+      
+      return;
+    }
+    
     setSearchResults({ content: '', loading: true });
     
     try {
@@ -72,13 +98,13 @@ export function ConsolePage() {
                 'Authorization': `Bearer ${apiKey}`
             },
             body: JSON.stringify({
-                model: 'gpt-4o-mini',
+                model: 'gpt-4o',
                 tools: [{
                     type: 'file_search',
                     vector_store_ids: ['vs_67ecdf6c4c388191babe14f6528ec5d6'],
-                    max_num_results: 5
+                    max_num_results: 20
                 }],
-                input: keyword,
+                input: "Tìm kiếm trong cơ sở tri thức đã được cung cấp thông tin về " + keyword,
             })
         });
 
@@ -92,7 +118,10 @@ export function ConsolePage() {
             throw new Error('Search process is not completed yet');
         }
         
-        const messageOutput = data.output.find((output: { type: string; }) => output.type === "message");
+      const messageOutput = data.output.find((output: { type: string; }) => output.type === "message");
+
+      const tokensOutput = data.usage.total_tokens;
+      console.log('Tokens used:', tokensOutput);
         let extractedText = "No relevant content found.";
         
         if (messageOutput && messageOutput.content.length > 0) {
@@ -102,9 +131,25 @@ export function ConsolePage() {
             }
         }
         
-        setSearchResults({
+        const newResult = {
             content: extractedText,
-            loading: false
+            loading: false,
+            tokens: tokensOutput
+        };
+        
+        setSearchResults(newResult);
+        
+        // Store in cache
+        setSearchCache(prev => {
+          // Limit cache size to prevent memory issues (keep last 20 searches)
+          const newCache = [...prev, {
+            keyword,
+            result: newResult,
+            timestamp: Date.now()
+          }];
+          
+          // Sort by timestamp (descending) and take the most recent 20
+          return newCache.sort((a, b) => b.timestamp - a.timestamp).slice(0, 20);
         });
         
         // Add to search history if not already present
@@ -120,7 +165,6 @@ export function ConsolePage() {
         });
     }
 };
-
 
   /**
    * Instantiate:
@@ -355,12 +399,31 @@ export function ConsolePage() {
         console.log('Assistant response:', text);
         
         if (text && text !== "No keywords detected.") {
-          // Extract keywords from the assistant's response without requiring KEYWORD: prefix
-          // Split by spaces, commas, or new lines to get individual words
-          const potentialKeywords = text
-            .split(/[\s,\n]+/)
-            .map((word: string) => word.trim())
-            .filter((word: string) => word.length > 0 && !['KEYWORD:', 'No', 'keywords', 'detected.'].includes(word));
+          // Improved approach to extract keywords while preserving compound words
+          // First, try to extract full phrases separated by commas or new lines
+          let potentialKeywords: string[] = [];
+          
+          // Try to split by commas or newlines first to preserve multi-word phrases
+          potentialKeywords = text
+            .split(/[,\n]+/)
+            .map((phrase: string) => phrase.trim())
+            .filter((phrase: string) => 
+              phrase.length > 0 && 
+              !phrase.includes('KEYWORD:') && 
+              phrase !== 'No' && 
+              phrase !== 'keywords' && 
+              phrase !== 'detected.'
+            );
+          
+          // If no obvious phrases were found (no commas or newlines), 
+          // then we might need to take the whole text as a single keyword
+          if (potentialKeywords.length === 0 && text.length > 0) {
+            // Remove any KEYWORD: prefix if it exists
+            const cleanedText = text.replace(/^KEYWORD:\s*/i, '');
+            if (cleanedText !== 'No keywords detected.') {
+              potentialKeywords = [cleanedText];
+            }
+          }
           
           if (potentialKeywords.length > 0) {
             console.log('Detected keywords:', potentialKeywords);
@@ -385,6 +448,7 @@ export function ConsolePage() {
       client.reset();
     };
   }, []);
+
 
   /**
    * Render the simplified application
@@ -497,7 +561,7 @@ export function ConsolePage() {
         {/* New search panel on the right */}
         <div className="search-panel">
           <div className="search-header">
-            <div className="search-title">Keyword Search</div>
+            
             <div className="search-box">
               <input 
                 type="text"
@@ -513,7 +577,14 @@ export function ConsolePage() {
               />
             </div>
             <div className="search-history">
-              <div className="history-title">Recent Searches:</div>
+              <div className="history-title">
+                Recent Searches:
+                {searchCache.length > 0 && (
+                  <span className="cache-status" title="Using cached results">
+                    ({searchCache.length} cached)
+                  </span>
+                )}
+              </div>
               <div className="history-items">
                 {searchHistory.map((term, idx) => (
                   <Button 
@@ -541,12 +612,20 @@ export function ConsolePage() {
             </div>
             <div className="results-content">
               {searchResults.content ? (
-                <div className="result-text">{searchResults.content}</div>
+                <div className="result-text">
+                  {searchResults.content}
+                  {searchResults.tokens && (
+                    <div className="token-count">
+                      <p>Total tokens used: {searchResults.tokens}</p>
+                    </div>
+                  )}
+                </div>
               ) : (
                 <div className="no-results">
                   {searchResults.loading ? "Searching..." : "No results yet. Click on a keyword or use the search box above."}
                 </div>
               )}
+              <p></p>
             </div>
           </div>
         </div>
