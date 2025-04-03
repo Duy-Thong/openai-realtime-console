@@ -24,9 +24,31 @@ import { Toggle } from '../components/toggle/Toggle';
 
 import './ConsolePage.scss';
 
-// Keyword detection instructions
-const keywordInstructions = `
-Extract keywords in real-time only in English. As soon as a word is spoken, immediately determine if it is a keyword and return it. Do NOT wait for full sentences. Extract and return only nouns, verbs, and critical terms. Exclude articles, prepositions, conjunctions, pronouns, and auxiliary verbs. Return single words, not phrases. Ignore non-English words. Focus on meaningful words relevant to the context. Maintain high accuracy in identifying important terms.`;
+// Question generation instructions
+const questionGenerationInstructions = `
+Lắng nghe bài phát biểu của người dùng và tạo các câu hỏi ngắn gọn, cụ thể dựa trên các chủ đề liên quan đến bảo hiểm được đề cập.
+
+Sau mỗi câu nói, hãy hình thành 1-2 câu hỏi ngắn liên quan chặt chẽ đến bảo hiểm, đảm bảo liên quan tới các chính sách, yêu cầu bồi thường, phạm vi bảo hiểm, quy định hoặc xu hướng ngành.
+
+Tập trung vào việc trích xuất các chủ đề bảo hiểm cốt lõi và xây dựng các câu hỏi chính xác. Bỏ qua các chủ đề không liên quan.
+
+Ví dụ:
+
+Nếu ai đó nói về bảo hiểm nhân thọ, tạo câu hỏi: "Những gói bảo hiểm nhân thọ nào tốt nhất?"
+
+Nếu họ đề cập đến hư hỏng xe, tạo câu hỏi: "Bảo hiểm ô tô có chi trả thiệt hại do tai nạn không?"
+
+Nếu ai đó nói về chi phí y tế, tạo câu hỏi: "Những gói bảo hiểm y tế nào bao gồm chi phí nằm viện?"
+
+Yêu cầu:
+
+Câu hỏi phải ngắn gọn, mang tính thực tế, và tập trung vào việc truy xuất thông tin về bảo hiểm.
+
+Tránh câu hỏi mở, mang tính đối thoại hoặc suy đoán.
+
+Chỉ tạo câu hỏi bằng tiếng Anh. Mỗi câu hỏi phải là một câu hoàn chỉnh có dấu hỏi.
+Lắng nghe toàn bộ câu nói, Chỉ tạo 1-2 câu hỏi sau khi người nói đã kết thúc câu.
+Tạo câu hỏi bằng tiếng Việt`;
 // Interface for search results
 interface SearchResult {
   content: string;
@@ -137,9 +159,10 @@ export function ConsolePage() {
                 tools: [{
                     type: 'file_search',
                     vector_store_ids: ['vs_67ee03150ce48191bca7e703b889990a'],
-                    max_num_results: 20
+                  max_num_results: 50,
+                    
                 }],
-                input: keyword,
+                input: "Tìm tất cả thông tin về câu hỏi sau :" + keyword,
             })
         });
 
@@ -235,13 +258,13 @@ export function ConsolePage() {
   /**
    * All of our variables for displaying application state
    * - items are all conversation items (dialog)
-   * - detectedKeywords stores keywords recognized from speech
+   * - generatedQuestions stores questions generated from speech
    */
   const [items, setItems] = useState<ItemType[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [canPushToTalk, setCanPushToTalk] = useState(true);
   const [isRecording, setIsRecording] = useState(false);
-  const [detectedKeywords, setDetectedKeywords] = useState<string[]>([]);
+  const [generatedQuestions, setGeneratedQuestions] = useState<string[]>([]);
 
   /**
    * When you click the API key
@@ -266,7 +289,7 @@ export function ConsolePage() {
     // Set state variables
     setIsConnected(true);
     setItems([]);
-    setDetectedKeywords([]);
+    setGeneratedQuestions([]);
 
     // Connect to microphone
     await wavRecorder.begin();
@@ -286,7 +309,7 @@ export function ConsolePage() {
   const disconnectConversation = useCallback(async () => {
     setIsConnected(false);
     setItems([]);
-    setDetectedKeywords([]);
+    setGeneratedQuestions([]);
 
     const client = clientRef.current;
     client.disconnect();
@@ -409,8 +432,8 @@ export function ConsolePage() {
     // Get refs
     const client = clientRef.current;
 
-    // Set instructions for keyword detection
-    client.updateSession({ instructions: keywordInstructions });
+    // Set instructions for question generation
+    client.updateSession({ instructions: questionGenerationInstructions });
     // Set transcription, otherwise we don't get user transcriptions back
     client.updateSession({ input_audio_transcription: { model: 'whisper-1' },modalities: ['text'] });
 
@@ -428,47 +451,81 @@ export function ConsolePage() {
         console.log('User transcript:', item.formatted.transcript);
       }
       
-      // Check for keywords in assistant responses
+      // Check for generated questions in assistant responses
       if (item.role === 'assistant' && item.formatted.text) {
         const text = item.formatted.text.trim();
         console.log('Assistant response:', text);
         
-        if (text && text !== "No keywords detected.") {
-          // Improved approach to extract keywords while preserving compound words
-          // First, try to extract full phrases separated by commas or new lines
-          let potentialKeywords: string[] = [];
+        if (text && !text.toLowerCase().includes("no question") && !text.toLowerCase().includes("not enough context")) {
+          // Process questions - they might be separated by line breaks, numbers, or be the entire text
+          // First try to match standard question format (ends with question mark)
+          const questionRegex = /(?:^|\n)(?:\d+\.?\s*)?([^.!?]+\?)/g;
+          let matches = [...text.matchAll(questionRegex)];
           
-          // Try to split by commas or newlines first to preserve multi-word phrases
-          potentialKeywords = text
-            .split(/[,\n]+/)
-            .map((phrase: string) => phrase.trim())
-            .filter((phrase: string) => 
-              phrase.length > 0 && 
-              !phrase.includes('KEYWORD:') && 
-              phrase !== 'No' && 
-              phrase !== 'keywords' && 
-              phrase !== 'detected.'
-            );
+          let questions: string[] = [];
           
-          // If no obvious phrases were found (no commas or newlines), 
-          // then we might need to take the whole text as a single keyword
-          if (potentialKeywords.length === 0 && text.length > 0) {
-            // Remove any KEYWORD: prefix if it exists
-            const cleanedText = text.replace(/^KEYWORD:\s*/i, '');
-            if (cleanedText !== 'No keywords detected.') {
-              potentialKeywords = [cleanedText];
+          if (matches.length > 0) {
+            // Extract questions from regex matches - limit to top 2 questions
+            questions = matches.map(match => match[1].trim())
+              .filter(q => q.length > 5 && q.length < 100) // Filter out very short or very long questions
+              .slice(0, 2); // Limit to 2 best questions
+          } else if (text.includes('?')) {
+            // If regex didn't work but there's a question mark, take the whole text
+            // but only if it's not too long
+            if (text.length < 100) {
+              questions = [text];
             }
+          } else {
+            // If there's no question mark, try to form a question
+            // Check if it's a topic that can be turned into a search query
+            const topicKeywords = text.split(/[,\n]+/).map((t: string) => t.trim());
+            questions = topicKeywords
+              .filter((t: string | any[]) => t.length > 2)
+              .map((topic: string) => {
+                // If it doesn't end with a question mark, add "What about" prefix
+                if (!topic.endsWith('?')) {
+                  return `${topic}?`;
+                }
+                return topic;
+              })
+              .slice(0, 1); // Only take the first topic to reduce question count
           }
           
-          if (potentialKeywords.length > 0) {
-            console.log('Detected keywords:', potentialKeywords);
-            // Only add keywords that aren't already in the array
-            setDetectedKeywords(prev => {
-              const uniqueKeywords = potentialKeywords.filter(
-                (keyword: string) => !prev.includes(keyword)
-              );
-              return [...prev, ...uniqueKeywords];
-            });
+          if (questions.length > 0) {
+            console.log('Generated query questions:', questions);
+            
+            // Enhanced duplicate detection function
+            const isDuplicate = (newQuestion: string, existingQuestions: string[]) => {
+              const normalizedNew = newQuestion.toLowerCase().replace(/[^\w\s\?]/g, '').trim();
+              
+              return existingQuestions.some(existing => {
+                // Direct match
+                if (existing.toLowerCase() === newQuestion.toLowerCase()) return true;
+                
+                // Normalized match (remove punctuation and extra spaces)
+                const normalizedExisting = existing.toLowerCase().replace(/[^\w\s\?]/g, '').trim();
+                if (normalizedExisting === normalizedNew) return true;
+                
+                // Similarity check - if one contains the other substantially
+                if (normalizedNew.includes(normalizedExisting) || normalizedExisting.includes(normalizedNew)) {
+                  // Check if one is at least 80% of the other's length to avoid false positives
+                  const ratio = Math.min(normalizedNew.length, normalizedExisting.length) / 
+                               Math.max(normalizedNew.length, normalizedExisting.length);
+                  if (ratio > 0.8) return true;
+                }
+                
+                return false;
+              });
+            };
+            
+            // Only save the latest question
+            if (questions.length > 0) {
+              // Get the last (most recent) question
+              const latestQuestion = questions[questions.length - 1];
+              
+              // Set it as the only question in the array
+              setGeneratedQuestions([latestQuestion]);
+            }
           }
         }
       }
@@ -493,7 +550,7 @@ export function ConsolePage() {
       <div className="content-top">
         <div className="content-title">
           <img src="/openai-logomark.svg" />
-          <span>voice keyword detector</span>
+          <span>voice query generator</span>
         </div>
         <div className="content-api-key">
           {!LOCAL_RELAY_SERVER_URL && (
@@ -509,25 +566,25 @@ export function ConsolePage() {
       </div>
       <div className="content-main">
         <div className="content-logs">
-          {/* Visualization moved down to give priority to keywords and transcript */}
+          {/* Questions display section */}
           <div className="content-block keywords-display">
-            <div className="content-block-title">DETECTED KEYWORDS</div>
+            <div className="content-block-title">GENERATED QUERIES</div>
             <div className="content-block-body keywords-container" data-conversation-content>
-              {detectedKeywords.length === 0 ? (
-                <div className="no-keywords">Speak to detect keywords</div>
+              {generatedQuestions.length === 0 ? (
+                <div className="no-keywords">Speak to generate search queries</div>
               ) : (
                 <div className="keywords-grid">
-                  {detectedKeywords.map((keyword, index) => (
+                  {generatedQuestions.map((question, index) => (
                     <div 
                       key={index} 
-                      className={`keyword-badge ${isDragging ? 'draggable' : ''}`}
-                      onClick={() => performSearch(keyword)}
-                      title="Click to search or drag to combine with other keywords"
+                      className={`keyword-badge query-badge ${isDragging ? 'draggable' : ''}`}
+                      onClick={() => performSearch(question)}
+                      title="Click to search for this topic or drag to combine with other queries"
                       draggable={true}
-                      onDragStart={(e) => handleDragStart(e, keyword)}
+                      onDragStart={(e) => handleDragStart(e, question)}
                       onDragEnd={handleDragEnd}
                     >
-                      {keyword}
+                      {question}
                     </div>
                   ))}
                 </div>
@@ -596,7 +653,7 @@ export function ConsolePage() {
           </div>
         </div>
         
-        {/* New search panel on the right */}
+        {/* Search panel on the right */}
         <div className="search-panel">
           <div className="search-header">
             
@@ -610,7 +667,7 @@ export function ConsolePage() {
                 type="text"
                 value={searchKeyword}
                 onChange={(e) => setSearchKeyword(e.target.value)}
-                placeholder="Enter keyword or drag keywords here"
+                placeholder="Enter query or drag generated queries here"
               />
               <Button
                 icon={Search}
@@ -665,7 +722,7 @@ export function ConsolePage() {
                 </div>
               ) : (
                 <div className="no-results">
-                  {searchResults.loading ? "Searching..." : "No results yet. Click on a keyword or use the search box above."}
+                  {searchResults.loading ? "Searching..." : "No results yet. Click on a question or use the search box above."}
                 </div>
               )}
               <p></p>
