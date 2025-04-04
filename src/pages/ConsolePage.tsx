@@ -145,84 +145,148 @@ export function ConsolePage() {
       return;
     }
     
+    // Clear previous results and set loading state
     setSearchResults({ content: '', loading: true });
     
     try {
-        const response = await fetch('https://api.openai.com/v1/responses', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${apiKey}`
-            },
-            body: JSON.stringify({
-                model: 'gpt-4o',
-                tools: [{
-                    type: 'file_search',
-                    vector_store_ids: ['vs_67ee03150ce48191bca7e703b889990a'],
-                  max_num_results: 50,
-                    
-                }],
-                input: "Tìm tất cả thông tin về câu hỏi sau :" + keyword,
-            })
-        });
-
-        if (!response.ok) {
-            throw new Error(`API request failed with status ${response.status}`);
+      const response = await fetch('https://api.openai.com/v1/responses', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o',
+          tools: [{
+            type: 'file_search',
+            vector_store_ids: ['vs_67ee03150ce48191bca7e703b889990a'],
+            max_num_results: 50,
+          }],
+          input: "Tìm tất cả thông tin về câu hỏi sau :" + keyword,
+          stream: true
+        })
+      });
+  
+      if (!response.ok) {
+        throw new Error(`API request failed with status ${response.status}`);
+      }
+  
+      // Get a reader from the response body stream
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('Failed to get reader from response body');
+      }
+  
+      // Create a text decoder to handle UTF-8 encoded text
+      const decoder = new TextDecoder('utf-8');
+      let accumulatedContent = '';
+      let totalTokens = 0;
+  
+      // Process the stream chunks
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
         }
-
-        const data = await response.json();
+  
+        // Decode the chunk and process events
+        const chunk = decoder.decode(value, { stream: true });
+        const events = chunk.split('\n\n').filter(Boolean);
         
-        if (data.status !== "completed") {
-            throw new Error('Search process is not completed yet');
-        }
-        
-      const messageOutput = data.output.find((output: { type: string; }) => output.type === "message");
-
-      const tokensOutput = data.usage.total_tokens;
-      console.log('Tokens used:', tokensOutput);
-        let extractedText = "No relevant content found.";
-        
-        if (messageOutput && messageOutput.content.length > 0) {
-            const textContent = messageOutput.content.find((content: { type: string; }) => content.type === "output_text");
-            if (textContent) {
-                extractedText = textContent.text;
-            }
-        }
-        
-        const newResult = {
-            content: extractedText,
-            loading: false,
-            tokens: tokensOutput
-        };
-        
-        setSearchResults(newResult);
-        
-        // Store in cache
-        setSearchCache(prev => {
-          // Limit cache size to prevent memory issues (keep last 20 searches)
-          const newCache = [...prev, {
-            keyword,
-            result: newResult,
-            timestamp: Date.now()
-          }];
+        for (const event of events) {
+          // Skip empty events
+          if (!event.trim()) continue;
+  
+          const eventMatch = event.match(/^event:\s*(.+)$/m);
+          const dataMatch = event.match(/^data:\s*(.+)$/m);
           
-          // Sort by timestamp (descending) and take the most recent 20
-          return newCache.sort((a, b) => b.timestamp - a.timestamp).slice(0, 20);
-        });
-        
-        // Add to search history if not already present
-        if (!searchHistory.includes(keyword)) {
-            setSearchHistory(prev => [keyword, ...prev].slice(0, 5));
+          if (!eventMatch || !dataMatch) continue;
+          
+          const eventType = eventMatch[1].trim();
+          const data = JSON.parse(dataMatch[1].trim());
+          
+          console.log('Stream event:', eventType, data);
+  
+          // Handle different event types
+          switch (eventType) {
+            case 'response.output_text.delta':
+              // Update with the new text chunk
+              accumulatedContent += data.delta;
+              setSearchResults(prev => ({
+                ...prev,
+                content: accumulatedContent,
+                loading: true
+              }));
+              break;
+              
+            case 'response.output_text.done':
+              // Final text content when the text is complete
+              accumulatedContent = data.text;
+              setSearchResults(prev => ({
+                ...prev,
+                content: accumulatedContent,
+                loading: true
+              }));
+              break;
+              
+            case 'response.completed':
+              // Get total token usage when response is complete
+              if (data.response.usage) {
+                totalTokens = data.response.usage.total_tokens;
+              }
+              
+              // Final update with complete content and token count
+              setSearchResults({
+                content: accumulatedContent,
+                loading: false,
+                tokens: totalTokens
+              });
+              
+              // Store in cache
+              setSearchCache(prev => {
+                const newCache = [...prev, {
+                  keyword,
+                  result: {
+                    content: accumulatedContent,
+                    loading: false,
+                    tokens: totalTokens
+                  },
+                  timestamp: Date.now()
+                }];
+                
+                // Sort by timestamp (descending) and take the most recent 20
+                return newCache.sort((a, b) => b.timestamp - a.timestamp).slice(0, 20);
+              });
+              
+              break;
+            
+            // Handle message content parts
+            case 'response.content_part.added':
+              if (data.part.type === 'output_text') {
+                setSearchResults(prev => ({
+                  ...prev,
+                  content: prev.content || 'Loading...',
+                  loading: true
+                }));
+              }
+              break;
+          }
         }
-        
+      }
+      
+      // Add to search history if not already present
+      if (!searchHistory.includes(keyword)) {
+        setSearchHistory(prev => [keyword, ...prev].slice(0, 5));
+      }
+      
     } catch (error) {
-        console.error('Search error:', error);
-        setSearchResults({
-            content: `Error: Failed to search for "${keyword}"`,
-            loading: false
-        });
+      console.error('Search error:', error);
+      setSearchResults({
+        content: `Error: Failed to search for "${keyword}"`,
+        loading: false
+      });
     }
-};
+  };
 
   /**
    * Instantiate:
