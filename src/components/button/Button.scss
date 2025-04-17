@@ -1,43 +1,59 @@
 [data-component='Button'] {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-family: 'Roboto Mono', monospace;
-  font-size: 12px;
-  font-optical-sizing: auto;
-  font-weight: 400;
-  font-style: normal;
+  justify-content: center;
+  gap: 10px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 14px;
+  font-weight: 500;
   border: none;
-  background-color: #ececf1;
-  color: #101010;
-  border-radius: 1000px;
-  padding: 8px 24px;
+  background-color: #edf2f7;
+  color: #2d3748;
+  border-radius: 8px;
+  padding: 10px 24px;
   min-height: 42px;
-  transition: transform 0.1s ease-in-out, background-color 0.1s ease-in-out;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  transition: all 0.2s ease;
   outline: none;
 
   &.button-style-action {
-    background-color: #101010;
-    color: #ececf1;
+    background-color: #3b82f6;
+    color: white;
     &:hover:not([disabled]) {
-      background-color: #404040;
+      background-color: #2563eb;
+      box-shadow: 0 4px 6px rgba(37, 99, 235, 0.2);
     }
   }
 
   &.button-style-alert {
-    background-color: #f00;
-    color: #ececf1;
+    background-color: #ef4444;
+    color: white;
     &:hover:not([disabled]) {
-      background-color: #f00;
+      background-color: #dc2626;
+      box-shadow: 0 4px 6px rgba(220, 38, 38, 0.2);
+    }
+  }
+
+  &.button-style-success {
+    background-color: #10b981;
+    color: white;
+    &:hover:not([disabled]) {
+      background-color: #059669;
+      box-shadow: 0 4px 6px rgba(5, 150, 105, 0.2);
     }
   }
 
   &.button-style-flush {
-    background-color: rgba(255, 255, 255, 0);
+    background-color: transparent;
+    box-shadow: none;
+    &:hover:not([disabled]) {
+      background-color: rgba(0, 0, 0, 0.05);
+    }
   }
 
   &[disabled] {
-    color: #999;
+    opacity: 0.6;
+    cursor: not-allowed;
   }
 
   &:not([disabled]) {
@@ -45,36 +61,49 @@
   }
 
   &:hover:not([disabled]) {
-    background-color: #d8d8d8;
+    background-color: #e2e8f0;
   }
 
   &:active:not([disabled]) {
     transform: translateY(1px);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
   }
 
   .icon {
     display: flex;
+    align-items: center;
+    justify-content: center;
+    
     &.icon-start {
-      margin-left: -8px;
+      margin-left: -4px;
     }
+    
     &.icon-end {
-      margin-right: -8px;
+      margin-right: -4px;
     }
+    
     svg {
-      width: 16px;
-      height: 16px;
+      width: 18px;
+      height: 18px;
     }
   }
 
   &.icon-red .icon {
-    color: #cc0000;
+    color: #ef4444;
   }
+  
   &.icon-green .icon {
-    color: #009900;
+    color: #10b981;
   }
+  
+  &.icon-blue .icon {
+    color: #3b82f6;
+  }
+  
   &.icon-grey .icon {
-    color: #909090;
+    color: #6b7280;
   }
+  
   &.icon-fill {
     svg {
       fill: currentColor;
